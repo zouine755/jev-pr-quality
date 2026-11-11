@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildReviewEvent, insertReviewEvent, insertReviewEvents } from './rawtree.mjs';
+import {
+  buildReviewEvent,
+  exchangeRawTreeToken,
+  getGitHubOidcToken,
+  insertReviewEvent,
+  insertReviewEvents,
+} from './rawtree.mjs';
 
 const pullRequest = {
   number: 42,
@@ -31,7 +37,6 @@ test('builds one queryable event using the lowest rating per dimension', () => {
     ],
   };
   const event = buildReviewEvent({ report, pullRequest, environment, recordedAt: '2026-09-25T12:00:00.000Z' });
-
   assert.equal(event.event_id, `example/repo:42:${'a'.repeat(40)}:987:2`);
   assert.equal(event.author_login, 'alice');
   assert.equal(event.data_source, 'jev');
@@ -44,12 +49,46 @@ test('builds one queryable event using the lowest rating per dimension', () => {
   ]);
 });
 
-test('inserts the event with a write-only key and optional database selector', async () => {
+test('requests a GitHub OIDC token for the configured audience', async () => {
+  let request;
+  const token = await getGitHubOidcToken({
+    audience: 'rawtree',
+    requestUrl: 'https://actions.example/token?foo=bar',
+    requestToken: 'github-request-token',
+    fetch: async (url, options) => {
+      request = { url: String(url), options };
+      return Response.json({ value: 'github-oidc-assertion' });
+    },
+  });
+  assert.equal(token, 'github-oidc-assertion');
+  assert.equal(new URL(request.url).searchParams.get('audience'), 'rawtree');
+  assert.equal(request.options.headers.authorization, 'Bearer github-request-token');
+});
+
+test('exchanges the GitHub identity token for a short-lived RawTree token', async () => {
+  let request;
+  const token = await exchangeRawTreeToken({
+    oidcToken: 'github-oidc-assertion',
+    federationRuleId: 'rule-123',
+    baseUrl: 'https://rawtree.example',
+    fetch: async (url, options) => {
+      request = { url: String(url), options };
+      return Response.json({ access_token: 'rt_short_lived' });
+    },
+  });
+  assert.equal(token, 'rt_short_lived');
+  assert.equal(request.url, 'https://rawtree.example/oauth/token');
+  const body = new URLSearchParams(request.options.body);
+  assert.equal(body.get('federation_rule_id'), 'rule-123');
+  assert.equal(body.get('assertion'), 'github-oidc-assertion');
+});
+
+test('inserts the event with the short-lived token and optional database selector', async () => {
   const event = { event_type: 'jev_pr_review' };
   let request;
   await insertReviewEvent({
     event,
-    apiKey: 'rt_test',
+    accessToken: 'rt_short_lived',
     table: 'PR reviews',
     database: 'engineering analytics',
     baseUrl: 'https://rawtree.example/base',
@@ -58,10 +97,9 @@ test('inserts the event with a write-only key and optional database selector', a
       return new Response('{}', { status: 200 });
     },
   });
-
   assert.equal(request.url, 'https://rawtree.example/v1/tables/PR%20reviews');
   const headers = new Headers(request.options.headers);
-  assert.equal(headers.get('authorization'), 'Bearer rt_test');
+  assert.equal(headers.get('authorization'), 'Bearer rt_short_lived');
   assert.equal(headers.get('x-rawtree-database'), 'engineering analytics');
   assert.deepEqual(JSON.parse(request.options.body), [event]);
 });
@@ -70,7 +108,7 @@ test('inserts multiple review events as one batch', async () => {
   const events = [{ event_id: 'one' }, { event_id: 'two' }];
   let body;
   await insertReviewEvents({
-    events, apiKey: 'rt_test',
+    events, accessToken: 'rt_short_lived',
     fetch: async (_url, options) => {
       body = JSON.parse(options.body);
       return new Response('{}', { status: 200 });
@@ -79,9 +117,9 @@ test('inserts multiple review events as one batch', async () => {
   assert.deepEqual(body, events);
 });
 
-test('does not expose a Rawtree response body when an insert fails', async () => {
+test('does not expose a RawTree response body when an insert fails', async () => {
   await assert.rejects(insertReviewEvent({
-    event: {}, apiKey: 'rt_test',
+    event: {}, accessToken: 'rt_short_lived',
     fetch: async () => Response.json({ message: 'private event data' }, { status: 403 }),
   }), (error) => /HTTP 403/.test(error.message) && !error.message.includes('private'));
 });
