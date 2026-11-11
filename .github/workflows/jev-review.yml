@@ -1,4 +1,4 @@
-name: Jev Review with RawTree WIF
+name: PR Event Demo with RawTree WIF
 
 on:
   pull_request:
@@ -6,33 +6,35 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
   id-token: write
 
 concurrency:
-  group: jev-review-${{ github.event.pull_request.number }}
+  group: pr-event-demo-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
-  review:
+  log-sample-review:
     if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     environment: workload-federation-demo
     steps:
-      - name: Check out pull request
+      - name: Check out repository
         uses: actions/checkout@v5
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 0
           persist-credentials: false
 
-      - name: Run Jev review and log to RawTree
-        uses: ./
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
         with:
-          jev-api-key: ${{ secrets.JEV_API_KEY }}
-          minimum-score: ${{ vars.JEV_MIN_SCORE || '7' }}
-          rawtree-federation-rule-id: ${{ vars.RAWTREE_FEDERATION_RULE_ID }}
-          rawtree-audience: ${{ vars.RAWTREE_AUDIENCE || 'rawtree' }}
-          rawtree-database: ${{ vars.RAWTREE_JEV_DATABASE }}
-          rawtree-table: ${{ vars.RAWTREE_JEV_TABLE || 'jev_pr_reviews' }}
-          rawtree-base-url: ${{ vars.RAWTREE_JEV_BASE_URL || 'https://api.rawtree.com' }}
+          node-version: 24
+
+      - name: Create sample review and write to RawTree with WIF
+        shell: bash
+        env:
+          RAWTREE_FEDERATION_RULE_ID: ${{ vars.RAWTREE_FEDERATION_RULE_ID }}
+          RAWTREE_AUDIENCE: ${{ vars.RAWTREE_AUDIENCE || 'rawtree' }}
+          RAWTREE_JEV_DATABASE: ${{ vars.RAWTREE_JEV_DATABASE }}
+          RAWTREE_JEV_TABLE: ${{ vars.RAWTREE_JEV_TABLE || 'jev_pr_reviews' }}
+          RAWTREE_JEV_BASE_URL: ${{ vars.RAWTREE_JEV_BASE_URL || 'https://api.rawtree.com' }}
+        run: node scripts/jev-review/log-sample-rawtree.mjs
