@@ -1,5 +1,5 @@
 name: Jev PR Quality
-description: Review a complete pull request diff with Jev and log structured quality events to RawTree.
+description: Review a complete pull request diff with Jev and log structured quality events to RawTree using Workload Identity Federation.
 branding:
   icon: activity
   color: blue
@@ -8,15 +8,19 @@ inputs:
   jev-api-key:
     description: TypeSafe API key used by Jev.
     required: true
-  rawtree-api-key:
-    description: Write-only RawTree key. Logging is skipped when omitted.
+  rawtree-federation-rule-id:
+    description: RawTree federation rule ID used to exchange the GitHub OIDC token.
     required: false
+  rawtree-audience:
+    description: Audience configured on the RawTree federation rule.
+    required: false
+    default: rawtree
   minimum-score:
     description: Minimum passing score for every applicable dimension.
     required: false
     default: "7"
   rawtree-database:
-    description: RawTree database. Defaults to the API key's database.
+    description: RawTree database for review events.
     required: false
   rawtree-table:
     description: RawTree event table.
@@ -55,12 +59,13 @@ runs:
         echo "status=$status" >> "$GITHUB_OUTPUT"
         exit 0
 
-    - name: Log ratings to RawTree
-      if: ${{ always() && inputs.rawtree-api-key != '' }}
+    - name: Log ratings to RawTree with Workload Identity Federation
+      if: ${{ always() && inputs.rawtree-federation-rule-id != '' }}
       shell: bash
       env:
         ACTION_PATH: ${{ github.action_path }}
-        RAWTREE_JEV_API_KEY: ${{ inputs.rawtree-api-key }}
+        RAWTREE_FEDERATION_RULE_ID: ${{ inputs.rawtree-federation-rule-id }}
+        RAWTREE_AUDIENCE: ${{ inputs.rawtree-audience }}
         RAWTREE_JEV_DATABASE: ${{ inputs.rawtree-database }}
         RAWTREE_JEV_TABLE: ${{ inputs.rawtree-table }}
         RAWTREE_JEV_BASE_URL: ${{ inputs.rawtree-base-url }}
