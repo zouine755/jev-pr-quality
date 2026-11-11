@@ -13,7 +13,7 @@ jobs:
     steps:
       - name: Read the OIDC subject without exposing the token
         run: |
-          node <<'NODE'
+          node --input-type=module <<'NODE'
           const url = new URL(process.env.ACTIONS_ID_TOKEN_REQUEST_URL);
           url.searchParams.set("audience", "rawtree");
 
