@@ -13,28 +13,59 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  log-sample-review:
+  wif-exchange-isolation:
     if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     environment: workload-federation-demo
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          persist-credentials: false
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-
-      - name: Create sample review and write to RawTree with WIF
+      - name: Exchange GitHub OIDC token with RawTree (isolated test)
         shell: bash
         env:
+          RAWTREE_URL: ${{ secrets.RAWTREE_JEV_BASE_URL }}
           RAWTREE_FEDERATION_RULE_ID: ${{ vars.RAWTREE_FEDERATION_RULE_ID }}
           RAWTREE_AUDIENCE: ${{ vars.RAWTREE_AUDIENCE || 'rawtree' }}
-          RAWTREE_JEV_DATABASE: ${{ secrets.RAWTREE_JEV_DATABASE }}
-          RAWTREE_JEV_TABLE: ${{ secrets.RAWTREE_JEV_TABLE }}
-          RAWTREE_JEV_BASE_URL: ${{ secrets.RAWTREE_JEV_BASE_URL }}
-        run: node scripts/jev-review/log-sample-rawtree.mjs
+        run: |
+          set -euo pipefail
+          oidc_file="$(mktemp)"
+          response_file="$(mktemp)"
+          trap 'rm -f "$oidc_file" "$response_file"' EXIT
+
+          if [[ -z "$RAWTREE_URL" || -z "$RAWTREE_FEDERATION_RULE_ID" || -z "$RAWTREE_AUDIENCE" ]]; then
+            echo "Required RawTree WIF configuration is missing."
+            exit 1
+          fi
+
+          echo "Requesting a fresh GitHub OIDC token..."
+          curl --fail --silent --show-error --get \
+            --data-urlencode "audience=$RAWTREE_AUDIENCE" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL" \
+            --header "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            --output "$oidc_file"
+
+          oidc_token="$(jq -r '.value // empty' "$oidc_file")"
+          if [[ -z "$oidc_token" ]]; then
+            echo "GitHub OIDC endpoint did not return a token."
+            exit 1
+          fi
+          echo "GitHub issued an OIDC token. Token value is kept private."
+
+          echo "Sending the documented JWT-bearer exchange request to RawTree..."
+          status="$(curl --silent --show-error \
+            --output "$response_file" \
+            --write-out '%{http_code}' \
+            --request POST "$RAWTREE_URL/oauth/token" \
+            --data-urlencode 'grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer' \
+            --data-urlencode "federation_rule_id=$RAWTREE_FEDERATION_RULE_ID" \
+            --data-urlencode "assertion=$oidc_token")"
+
+          if [[ "$status" != "200" ]] || [[ -z "$(jq -r '.access_token // empty' "$response_file")" ]]; then
+            echo "RawTree rejected the isolated token exchange (HTTP $status)."
+            safe_error="$(jq -r '[.error // empty, .error_description // empty] | map(select(length > 0)) | join(": ")' "$response_file" 2>/dev/null || true)"
+            if [[ -n "$safe_error" ]]; then
+              echo "RawTree response: $safe_error"
+            fi
+            exit 1
+          fi
+
+          echo "SUCCESS: RawTree accepted the GitHub OIDC token and issued a short-lived access token."
+          echo "Access token value is kept private."
