@@ -55,6 +55,18 @@ if (!process.env.RAWTREE_JEV_DATABASE) throw new Error('RAWTREE_JEV_DATABASE is 
 console.log('Creating a clearly labeled sample PR review event...');
 console.log('Requesting a short-lived GitHub identity token...');
 const oidcToken = await getGitHubOidcToken({ audience });
+const claimsSegment = oidcToken.split('.')[1];
+if (!claimsSegment) throw new Error('GitHub returned an identity token with an unexpected format.');
+const claims = JSON.parse(Buffer.from(claimsSegment, 'base64url').toString('utf8'));
+console.log('GitHub OIDC identity claims (safe metadata only):', JSON.stringify({
+  issuer: claims.iss,
+  audience: claims.aud,
+  subject: claims.sub,
+  repository: claims.repository,
+  repository_id: claims.repository_id,
+  repository_owner: claims.repository_owner,
+  environment: claims.environment,
+}));
 console.log('Exchanging the GitHub identity for a short-lived RawTree token...');
 const accessToken = await exchangeRawTreeToken({ oidcToken, federationRuleId, baseUrl });
 await insertReviewEvent({
