@@ -1,0 +1,40 @@
+name: Check GitHub OIDC Subject
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+
+jobs:
+  show-subject:
+    runs-on: ubuntu-latest
+    environment: workload-federation-demo
+    steps:
+      - name: Read the OIDC subject without exposing the token
+        env:
+          ACTIONS_ID_TOKEN_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
+          ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
+        run: |
+          node <<'NODE'
+          const url = new URL(process.env.ACTIONS_ID_TOKEN_REQUEST_URL);
+          url.searchParams.set("audience", "rawtree");
+
+          const response = await fetch(url, {
+            headers: {
+              Authorization: `Bearer ${process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN}`
+            }
+          });
+
+          if (!response.ok) {
+            throw new Error(`GitHub OIDC request failed: ${response.status}`);
+          }
+
+          const { value } = await response.json();
+          const payload = JSON.parse(
+            Buffer.from(value.split(".")[1], "base64url").toString("utf8")
+          );
+
+          console.log("OIDC subject (sub):", payload.sub);
+          console.log("OIDC audience (aud):", payload.aud);
+          NODE
