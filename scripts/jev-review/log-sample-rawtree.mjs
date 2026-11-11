@@ -66,7 +66,18 @@ console.log('GitHub OIDC identity claims (safe metadata only):', JSON.stringify(
   repository_id: claims.repository_id,
   repository_owner: claims.repository_owner,
   environment: claims.environment,
+  issued_at: claims.iat,
+  not_before: claims.nbf,
+  expires_at: claims.exp,
+  token_lifetime_seconds: Number.isFinite(claims.iat) && Number.isFinite(claims.exp) ? claims.exp - claims.iat : null,
 }));
+if (!claims.iss || !claims.sub || !claims.aud || !Number.isFinite(claims.iat) || !Number.isFinite(claims.exp)) {
+  throw new Error('GitHub OIDC token is missing one or more required claims: iss, sub, aud, iat, exp.');
+}
+const now = Math.floor(Date.now() / 1000);
+if (claims.iat > now + 60 || claims.exp <= now || claims.exp <= claims.iat || (Number.isFinite(claims.nbf) && claims.nbf > now + 60)) {
+  throw new Error('GitHub OIDC token has invalid timing claims or is expired/not yet valid.');
+}
 console.log('Exchanging the GitHub identity for a short-lived RawTree token...');
 const accessToken = await exchangeRawTreeToken({ oidcToken, federationRuleId, baseUrl });
 await insertReviewEvent({
