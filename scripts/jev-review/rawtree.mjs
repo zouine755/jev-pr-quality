@@ -98,7 +98,9 @@ export async function exchangeRawTreeToken({ oidcToken, federationRuleId, baseUr
         .filter((key) => typeof error?.[key] === 'string' || typeof error?.[key] === 'number')
         .map((key) => [key, error[key]]));
       if (Object.keys(safe).length) details = ` ${JSON.stringify(safe)}`;
-    } catch {}
+    } catch {
+      // Do not expose the response body or token assertion in CI logs.
+    }
     throw new Error(`RawTree token exchange failed (HTTP ${response.status}).${details}`);
   }
   const payload = await response.json();
