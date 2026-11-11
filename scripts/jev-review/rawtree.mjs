@@ -60,14 +60,62 @@ export function buildReviewEvent({ report, pullRequest, environment, recordedAt 
   };
 }
 
-export async function insertReviewEvents({ events, apiKey, table = 'jev_pr_reviews', database, baseUrl = 'https://api.rawtree.com', fetch = globalThis.fetch }) {
-  if (!apiKey?.trim()) throw new Error('RAWTREE_JEV_API_KEY is missing.');
+export async function getGitHubOidcToken({ audience, requestUrl = process.env.ACTIONS_ID_TOKEN_REQUEST_URL, requestToken = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN, fetch = globalThis.fetch }) {
+  if (!requestUrl || !requestToken) {
+    throw new Error('GitHub did not provide OIDC credentials. Confirm the workflow has id-token: write permission.');
+  }
+  const url = new URL(requestUrl);
+  url.searchParams.set('audience', audience);
+  const response = await fetch(url, {
+    headers: { authorization: `Bearer ${requestToken}`, accept: 'application/json' },
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok) throw new Error(`GitHub OIDC token request failed (HTTP ${response.status}).`);
+  const payload = await response.json();
+  if (typeof payload.value !== 'string' || !payload.value) {
+    throw new Error('GitHub OIDC response did not contain a token.');
+  }
+  return payload.value;
+}
+
+export async function exchangeRawTreeToken({ oidcToken, federationRuleId, baseUrl = 'https://api.rawtree.com', fetch = globalThis.fetch }) {
+  const body = new URLSearchParams({
+    grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+    federation_rule_id: federationRuleId,
+    assertion: oidcToken,
+  });
+  const response = await fetch(new URL('/oauth/token', baseUrl), {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
+    body,
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok) {
+    let details = '';
+    try {
+      const error = await response.json();
+      const safe = Object.fromEntries(['error', 'error_description', 'message', 'detail', 'code']
+        .filter((key) => typeof error?.[key] === 'string' || typeof error?.[key] === 'number')
+        .map((key) => [key, error[key]]));
+      if (Object.keys(safe).length) details = ` ${JSON.stringify(safe)}`;
+    } catch {}
+    throw new Error(`RawTree token exchange failed (HTTP ${response.status}).${details}`);
+  }
+  const payload = await response.json();
+  if (typeof payload.access_token !== 'string' || !payload.access_token) {
+    throw new Error('RawTree token response did not contain an access_token.');
+  }
+  return payload.access_token;
+}
+
+export async function insertReviewEvents({ events, accessToken, table = 'jev_pr_reviews', database, baseUrl = 'https://api.rawtree.com', fetch = globalThis.fetch }) {
+  if (!accessToken?.trim()) throw new Error('A short-lived RawTree access token is required.');
   if (!Array.isArray(events) || !events.length) throw new Error('At least one review event is required.');
   if (!table?.trim()) throw new Error('RAWTREE_JEV_TABLE must not be empty.');
   if (typeof fetch !== 'function') throw new Error('A fetch implementation is required.');
   const url = new URL(`/v1/tables/${encodeURIComponent(table)}`, baseUrl);
   const headers = new Headers({
-    authorization: `Bearer ${apiKey}`,
+    authorization: `Bearer ${accessToken}`,
     'content-type': 'application/json',
   });
   if (database?.trim()) headers.set('x-rawtree-database', database);
@@ -79,8 +127,7 @@ export async function insertReviewEvents({ events, apiKey, table = 'jev_pr_revie
     signal: AbortSignal.timeout(10_000),
   });
   if (!response.ok) {
-    // Rawtree errors may include submitted event data. Keep CI logs metadata-only.
-    throw new Error(`Rawtree review insert failed (HTTP ${response.status}).`);
+    throw new Error(`RawTree review insert failed (HTTP ${response.status}).`);
   }
 }
 
