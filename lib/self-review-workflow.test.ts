@@ -7,18 +7,29 @@ const workflow = readFileSync(
   "utf8"
 );
 
-test("self-review forwards its secrets and repository policy to the action", () => {
-  assert.match(workflow, /jev-api-key: \$\{\{ secrets\.JEV_API_KEY \}\}/);
+test("sample review workflow uses RawTree WIF without a permanent API key", () => {
+  assert.match(workflow, /id-token: write/);
+  assert.match(workflow, /environment: workload-federation-demo/);
   assert.match(
     workflow,
-    /minimum-score: \$\{\{ vars\.JEV_MIN_SCORE \|\| '7' \}\}/
+    /RAWTREE_FEDERATION_RULE_ID: \$\{\{ vars\.RAWTREE_FEDERATION_RULE_ID \}\}/
   );
   assert.match(
     workflow,
-    /rawtree-api-key: \$\{\{ secrets\.RAWTREE_JEV_API_KEY \}\}/
+    /RAWTREE_AUDIENCE: \$\{\{ vars\.RAWTREE_AUDIENCE \|\| 'rawtree' \}\}/
   );
   assert.match(
     workflow,
-    /rawtree-database: \$\{\{ vars\.RAWTREE_JEV_DATABASE \}\}/
+    /RAWTREE_JEV_DATABASE: \$\{\{ secrets\.RAWTREE_JEV_DATABASE \}\}/
   );
+  assert.match(
+    workflow,
+    /RAWTREE_JEV_TABLE: \$\{\{ secrets\.RAWTREE_JEV_TABLE \}\}/
+  );
+  assert.match(
+    workflow,
+    /RAWTREE_JEV_BASE_URL: \$\{\{ secrets\.RAWTREE_JEV_BASE_URL \}\}/
+  );
+  assert.match(workflow, /node scripts\/jev-review\/log-sample-rawtree\.mjs/);
+  assert.doesNotMatch(workflow, /JEV_API_KEY|RAWTREE_JEV_API_KEY/);
 });

@@ -34,17 +34,9 @@ Copy the new federation rule ID. Do not reuse a rule belonging to another reposi
 
 In **Settings → Environments**, create an environment named `workload-federation-demo`.
 
-Add these environment variables:
+Add the RawTree federation rule ID and audience as environment variables. Add the database, table, and API base URL as environment secrets.
 
-| Variable | Value |
-| --- | --- |
-| `RAWTREE_FEDERATION_RULE_ID` | The ID of the new RawTree federation rule |
-| `RAWTREE_AUDIENCE` | `rawtree` |
-| `RAWTREE_JEV_DATABASE` | Your RawTree database, for example `analytics` |
-| `RAWTREE_JEV_TABLE` | `jev_pr_reviews` |
-| `RAWTREE_JEV_BASE_URL` | `https://api.rawtree.com` |
-
-No GitHub secrets are required for this sample-event workflow. You do not need `JEV_API_KEY` or a permanent RawTree API key.
+No permanent RawTree API key is required. You do not need `JEV_API_KEY`.
 
 ## 3. Run the demo
 
@@ -52,8 +44,12 @@ Open or update a pull request in this repository. The **PR Event Demo with RawTr
 
 The sample uses fixed illustrative scores and sets `data_source` to `demo_fixture`. These are demonstration values, not an actual AI assessment of the pull request.
 
-RawTree creates the table automatically on its first insert. The cluster and target database must already exist and be available.
+The cluster and target database must already exist and be available. Whether the table is created automatically will be confirmed by this test run.
 
 ## Dashboard
 
 The example dashboard is available at [jev-pr-quality.rawtree.tech](https://jev-pr-quality.rawtree.tech). Dashboard access is separate from the GitHub Actions write workflow.
+
+## Temporary WIF trigger test
+
+This section is included only to create a harmless pull request that triggers the GitHub Actions WIF demo. It can be removed after the test.

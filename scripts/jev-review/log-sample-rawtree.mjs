@@ -55,6 +55,29 @@ if (!process.env.RAWTREE_JEV_DATABASE) throw new Error('RAWTREE_JEV_DATABASE is 
 console.log('Creating a clearly labeled sample PR review event...');
 console.log('Requesting a short-lived GitHub identity token...');
 const oidcToken = await getGitHubOidcToken({ audience });
+const claimsSegment = oidcToken.split('.')[1];
+if (!claimsSegment) throw new Error('GitHub returned an identity token with an unexpected format.');
+const claims = JSON.parse(Buffer.from(claimsSegment, 'base64url').toString('utf8'));
+console.log('GitHub OIDC identity claims (safe metadata only):', JSON.stringify({
+  issuer: claims.iss,
+  audience: claims.aud,
+  subject: claims.sub,
+  repository: claims.repository,
+  repository_id: claims.repository_id,
+  repository_owner: claims.repository_owner,
+  environment: claims.environment,
+  issued_at: claims.iat,
+  not_before: claims.nbf,
+  expires_at: claims.exp,
+  token_lifetime_seconds: Number.isFinite(claims.iat) && Number.isFinite(claims.exp) ? claims.exp - claims.iat : null,
+}));
+if (!claims.iss || !claims.sub || !claims.aud || !Number.isFinite(claims.iat) || !Number.isFinite(claims.exp)) {
+  throw new Error('GitHub OIDC token is missing one or more required claims: iss, sub, aud, iat, exp.');
+}
+const now = Math.floor(Date.now() / 1000);
+if (claims.iat > now + 60 || claims.exp <= now || claims.exp <= claims.iat || (Number.isFinite(claims.nbf) && claims.nbf > now + 60)) {
+  throw new Error('GitHub OIDC token has invalid timing claims or is expired/not yet valid.');
+}
 console.log('Exchanging the GitHub identity for a short-lived RawTree token...');
 const accessToken = await exchangeRawTreeToken({ oidcToken, federationRuleId, baseUrl });
 await insertReviewEvent({
